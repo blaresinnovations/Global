@@ -1,0 +1,12 @@
+-- Conditionally add missing columns using prepared statements
+SET @c = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'students' AND COLUMN_NAME = 'student_number');
+SET @stmt = IF(@c = 0, 'ALTER TABLE students ADD COLUMN student_number VARCHAR(20) DEFAULT NULL', 'SELECT 1');
+PREPARE s FROM @stmt; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @c = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'student_courses' AND COLUMN_NAME = 'start_date');
+SET @stmt = IF(@c = 0, 'ALTER TABLE student_courses ADD COLUMN start_date DATE', 'SELECT 1');
+PREPARE s2 FROM @stmt; EXECUTE s2; DEALLOCATE PREPARE s2;
+
+SET @c = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'student_courses' AND COLUMN_NAME = 'end_date');
+SET @stmt = IF(@c = 0, 'ALTER TABLE student_courses ADD COLUMN end_date DATE', 'SELECT 1');
+PREPARE s3 FROM @stmt; EXECUTE s3; DEALLOCATE PREPARE s3;

@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+.goog-logo-link,
+.goog-te-gadget span {
+  display: none !important;
+}
+
+.goog-te-gadget {
+  font-size: 0;
+}
+
+.goog-te-combo {
+  font-size: 14px;
+  padding: 4px;
+}
