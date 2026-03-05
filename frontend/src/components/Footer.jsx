@@ -5,11 +5,11 @@ import { Facebook, Twitter, Instagram, Linkedin, MessageCircle } from 'lucide-re
 
 const Footer = () => {
   const socialLinks = [
-    { icon: Facebook, label: 'Facebook', url: 'https://web.facebook.com/profile.php?id=100095526422233' },
+    { icon: Facebook, label: 'Facebook', url: '#' },
     { icon: Twitter, label: 'Twitter', url: '#' },
-    { icon: Instagram, label: 'Instagram', url: 'https://www.instagram.com/globalgate25.lk' },
+    { icon: Instagram, label: 'Instagram', url: '#' },
     { icon: Linkedin, label: 'LinkedIn', url: '#' },
-    { icon: MessageCircle, label: 'WhatsApp', url: 'https://wa.me/94777775747' }
+    { icon: MessageCircle, label: 'WhatsApp', url: 'https://wa.me/0773329211' }
   ];
   return (
     <footer className="bg-[#0A1428] text-white pt-16 pb-8">
@@ -149,7 +149,7 @@ const Footer = () => {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gold-500 mr-3 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
-                <span className="text-gray-300"><a href="mailto:info@globalgate.lk">info@globalgate.lk</a></span>
+                <span className="text-gray-300"><a href="mailto:globalgate25.lk@gmail.com">globalgate25.lk@gmail.com</a></span>
               </li>
               <li className="flex items-start">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gold-500 mr-3 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -177,6 +177,9 @@ const Footer = () => {
             <div className="flex space-x-6">
               <a href="/privacy" className="text-gray-400 hover:text-gold-500 text-sm transition-all duration-300 hover:translate-x-1">
                 Privacy Policy
+              </a>
+              <a href="/return" className="text-gray-400 hover:text-gold-500 text-sm transition-all duration-300 hover:translate-x-1">
+                Refund Policy
               </a>
               <a href="/terms" className="text-gray-400 hover:text-gold-500 text-sm transition-all duration-300 hover:translate-x-1">
                 Terms of Service

@@ -356,6 +356,7 @@ router.post('/:id/payment', upload.single('bank_slip'), async (req, res) => {
   const id = req.params.id; // student id
   try {
     const { courseId, payment_method } = req.body;
+    const payment_plan = req.body.payment_plan || 'full';
     const bankSlipPath = req.file ? `/BankSlip/${req.file.filename}` : null;
 
     const conn = await mysql.createConnection({
@@ -369,16 +370,104 @@ router.post('/:id/payment', upload.single('bank_slip'), async (req, res) => {
     let payment_status = 'pending';
     if (payment_method === 'card' || payment_method === 'free') payment_status = 'approved';
 
-    const start_date = req.body.start_date || null;
-    const end_date = req.body.end_date || null;
+    // load course info to compute start/end dates relative to course start date
+    const [courseRows] = await conn.execute('SELECT id, start_date, end_date, duration FROM courses WHERE id = ?', [courseId]);
+    const course = courseRows && courseRows[0] ? courseRows[0] : null;
+
+    // helper to add months to a date string (YYYY-MM-DD)
+    function addMonths(dateStr, months) {
+      const d = dateStr ? new Date(dateStr) : new Date();
+      const dt = new Date(d.getFullYear(), d.getMonth() + months, d.getDate());
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const day = String(dt.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    // parse duration into months (e.g. '6 months' => 6)
+    let durationMonths = null;
+    try {
+      if (course && course.duration) {
+        const m = String(course.duration).trim().match(/^(\d+)/);
+        if (m) durationMonths = parseInt(m[1], 10);
+      }
+    } catch (e) { durationMonths = null; }
+
+    const baseStart = (course && course.start_date) ? course.start_date.toISOString ? course.start_date.toISOString().slice(0,10) : String(course.start_date).slice(0,10) : null;
+    const baseEnd = (course && course.end_date) ? course.end_date.toISOString ? course.end_date.toISOString().slice(0,10) : String(course.end_date).slice(0,10) : null;
+
     const hasDates = await hasColumn(conn, 'student_courses', 'start_date') && await hasColumn(conn, 'student_courses', 'end_date');
+    const hasPlanCol = await hasColumn(conn, 'student_courses', 'payment_plan');
+
+    // determine start_date/end_date for this enrollment record based on plan
+    let enrollStart = req.body.start_date || null;
+    let enrollEnd = req.body.end_date || null;
+
+    if (hasDates && course) {
+      // Build approved start dates set for this student+course
+      const [approvedRows] = await conn.execute('SELECT start_date, end_date FROM student_courses WHERE student_id = ? AND course_id = ? AND payment_status = ?', [id, courseId, 'approved']);
+      const approvedStarts = new Set((approvedRows || []).map(r => r.start_date ? String(r.start_date).slice(0,10) : null).filter(Boolean));
+
+      const base = baseStart || (new Date()).toISOString().slice(0,10);
+
+      if (payment_plan === 'full') {
+        enrollStart = base;
+        enrollEnd = baseEnd || addMonths(base, durationMonths || 1);
+      } else if (payment_plan === '3-month' || payment_plan === '3-months') {
+        if (!durationMonths || durationMonths < 3) {
+          await conn.end();
+          return res.status(400).json({ error: 'Course duration too short for 3-month plan' });
+        }
+        // iterate 3-month blocks from base to find first unpaid block
+        let found = false;
+        for (let offset = 0; offset < (durationMonths || 0); offset += 3) {
+          const blockStart = addMonths(base, offset);
+          const blockEnd = addMonths(blockStart, 3);
+          if (!approvedStarts.has(blockStart)) {
+            enrollStart = blockStart;
+            // blockEnd is start of next block; set end_date to day before
+            enrollEnd = addMonths(blockStart, 3);
+            found = true;
+            break;
+          }
+        }
+        if (!found) { await conn.end(); return res.status(400).json({ error: 'No unpaid 3-month block available' }); }
+      } else if (payment_plan === 'monthly' || payment_plan === 'month') {
+        // iterate monthly blocks
+        let found = false;
+        const maxMonths = durationMonths || 36;
+        for (let offset = 0; offset < maxMonths; offset += 1) {
+          const blockStart = addMonths(base, offset);
+          const blockEnd = addMonths(blockStart, 1);
+          if (!approvedStarts.has(blockStart)) {
+            enrollStart = blockStart;
+            enrollEnd = addMonths(blockStart, 1);
+            found = true;
+            break;
+          }
+        }
+        if (!found) { await conn.end(); return res.status(400).json({ error: 'No unpaid monthly block available' }); }
+      } else {
+        // unknown plan, treat as full
+        enrollStart = base;
+        enrollEnd = baseEnd || addMonths(base, durationMonths || 1);
+      }
+    }
 
     // insert a record into student_courses so student can have multiple enrollments
     try {
       if (hasDates) {
-        await conn.execute('INSERT INTO student_courses (student_id, course_id, start_date, end_date, bank_slip_path, payment_method, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, courseId || null, start_date, end_date, bankSlipPath, payment_method || null, payment_status]);
+        if (hasPlanCol) {
+          await conn.execute('INSERT INTO student_courses (student_id, course_id, start_date, end_date, bank_slip_path, payment_method, payment_status, payment_plan) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, courseId || null, enrollStart, enrollEnd, bankSlipPath, payment_method || null, payment_status, payment_plan]);
+        } else {
+          await conn.execute('INSERT INTO student_courses (student_id, course_id, start_date, end_date, bank_slip_path, payment_method, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, courseId || null, enrollStart, enrollEnd, bankSlipPath, payment_method || null, payment_status]);
+        }
       } else {
-        await conn.execute('INSERT INTO student_courses (student_id, course_id, bank_slip_path, payment_method, payment_status) VALUES (?, ?, ?, ?, ?)', [id, courseId || null, bankSlipPath, payment_method || null, payment_status]);
+        if (hasPlanCol) {
+          await conn.execute('INSERT INTO student_courses (student_id, course_id, bank_slip_path, payment_method, payment_status, payment_plan) VALUES (?, ?, ?, ?, ?, ?)', [id, courseId || null, bankSlipPath, payment_method || null, payment_status, payment_plan]);
+        } else {
+          await conn.execute('INSERT INTO student_courses (student_id, course_id, bank_slip_path, payment_method, payment_status) VALUES (?, ?, ?, ?, ?)', [id, courseId || null, bankSlipPath, payment_method || null, payment_status]);
+        }
       }
     } catch (ie) {
       console.error('Insert payment/student_course error', ie);
@@ -609,8 +698,9 @@ router.get('/:id/courses', async (req, res) => {
 // Get all enrollments for a student (includes pending and approved payment_status)
 router.get('/:id/enrollments', async (req, res) => {
   const id = req.params.id;
+  let conn = null;
   try {
-    const conn = await mysql.createConnection({
+    conn = await mysql.createConnection({
       host: process.env.DB_HOST || 'localhost',
       port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 3306,
       user: process.env.DB_USER || 'root',
@@ -618,9 +708,20 @@ router.get('/:id/enrollments', async (req, res) => {
       database: process.env.DB_NAME || 'global_gate'
     });
 
+    // Check if tables exist
+    const [tables] = await conn.execute(`
+      SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('student_courses', 'courses')
+    `, [process.env.DB_NAME]);
+
+    if (!Array.isArray(tables) || tables.length < 2) {
+      await conn.end();
+      return res.status(500).json({ error: 'Required database tables not found' });
+    }
+
     const [rows] = await conn.execute(`
-      SELECT sc.id, sc.course_id, sc.payment_status, sc.payment_method, sc.bank_slip_path, sc.created_at,
-             c.name as course_name, c.duration, c.fee, c.banner_path
+      SELECT sc.id, sc.course_id, sc.payment_status, sc.payment_method, sc.bank_slip_path, sc.start_date, sc.end_date, sc.payment_plan, sc.created_at, sc.order_id,
+             c.name as course_name, c.duration, c.fee, c.banner_path, c.is_free, c.early_bird_price
       FROM student_courses sc
       LEFT JOIN courses c ON sc.course_id = c.id
       WHERE sc.student_id = ?
@@ -630,8 +731,11 @@ router.get('/:id/enrollments', async (req, res) => {
     await conn.end();
     res.json({ enrollments: Array.isArray(rows) ? rows : [] });
   } catch (err) {
-    console.error('Student enrollments error', err);
-    res.status(500).json({ error: 'Database error' });
+    if (conn) {
+      try { await conn.end(); } catch (e) { /* ignore */ }
+    }
+    console.error('Student enrollments error:', err.message, err.code);
+    res.status(500).json({ error: 'Database error: ' + (err.message || 'Unknown error') });
   }
 });
 

@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Home, BookOpen, LogOut, X, Menu } from 'lucide-react';
 import { BACKEND_URL } from '../../config';
 import assets from '../../assets/images/images'
+import CardPaymentModal from '../../components/CardPaymentModal';
 
 const navItems = [
   { key: 'dashboard', label: 'Dashboard', Icon: Home },
@@ -62,8 +63,8 @@ function MyCourses({ studentId }) {
         <p className="text-gray-500">You are not enrolled in any courses.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {courses.map(c => (
-            <motion.div key={c.id} layout initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="group relative bg-white/70 backdrop-blur-xl rounded-3xl shadow-xl border border-white/30 overflow-hidden hover:shadow-2xl transition-all duration-500">
+          {courses.map((c, idx) => (
+            <motion.div key={`my-course-${c.id}-${idx}`} layout initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="group relative bg-white/70 backdrop-blur-xl rounded-3xl shadow-xl border border-white/30 overflow-hidden hover:shadow-2xl transition-all duration-500">
               {c.banner_path ? (
                 <img src={c.banner_path.startsWith('http') ? c.banner_path : `${BACKEND_URL}${c.banner_path}`} alt={c.name} className="w-full h-56 object-cover" />
               ) : (
@@ -303,8 +304,10 @@ function AllCourses({ studentId, onPurchased }) {
   const [studentCoursesList, setStudentCoursesList] = React.useState([]);
   const [method, setMethod] = React.useState('bank');
   const [slipFile, setSlipFile] = React.useState(null);
+  const [paymentPlan, setPaymentPlan] = React.useState('full');
   const [submitting, setSubmitting] = React.useState(false);
   const [message, setMessage] = React.useState('');
+  const [showCardModal, setShowCardModal] = React.useState(false);
 
   React.useEffect(() => {
     let mounted = true;
@@ -314,7 +317,9 @@ function AllCourses({ studentId, onPurchased }) {
         const res = await fetch('/api/courses');
         const data = await res.json();
         if (!mounted) return;
-        setCourses(Array.isArray(data) ? data.map(c => ({ 
+        // Remove duplicate courses by ID
+        const uniqueCourses = Array.isArray(data) ? data.filter((c, idx, arr) => arr.findIndex(x => Number(x.id) === Number(c.id)) === idx) : [];
+        setCourses(uniqueCourses.map(c => ({ 
           ...c, 
           is_free: !!Number(c.is_free),
           is_seminar: !!Number(c.is_seminar),
@@ -322,7 +327,7 @@ function AllCourses({ studentId, onPurchased }) {
           early_bird_price: c.early_bird_price || null,
           start_date: c.start_date || null,
           end_date: c.end_date || null
-        })) : []);
+        })));
       } catch (e) { console.error(e); }
       finally { if (mounted) setLoading(false); }
     })();
@@ -338,8 +343,11 @@ function AllCourses({ studentId, onPurchased }) {
           if (sc.ok) {
             const data = await sc.json();
             setStudentCoursesList(Array.isArray(data.enrollments) ? data.enrollments : []);
+          } else {
+            console.error('Enrollments fetch failed:', sc.status, sc.statusText);
+            setStudentCoursesList([]);
           }
-        } catch (e) { console.error('student courses', e); setStudentCoursesList([]); }
+        } catch (e) { console.error('student courses error:', e); setStudentCoursesList([]); }
     })();
     return () => { mounted = false; };
   }, []);
@@ -349,6 +357,13 @@ function AllCourses({ studentId, onPurchased }) {
   const submitPayment = async () => {
     if (!studentId) return alert('Not signed in');
     if (!selected) return alert('Select a course');
+    
+    // If card payment selected, show card modal instead of direct submission
+    if (method === 'card') {
+      setShowCardModal(true);
+      return;
+    }
+    
     setSubmitting(true);
     setMessage('');
     try {
@@ -364,6 +379,7 @@ function AllCourses({ studentId, onPurchased }) {
       const fd = new FormData();
       fd.append('courseId', selected.id);
       fd.append('payment_method', method);
+      fd.append('payment_plan', paymentPlan || 'full');
       if (method === 'bank' && slipFile) fd.append('bank_slip', slipFile);
 
       const res = await fetch(`${BACKEND_URL}/api/students/${studentId}/payment`, { method: 'POST', body: fd });
@@ -371,9 +387,7 @@ function AllCourses({ studentId, onPurchased }) {
         const err = await res.json().catch(()=>({}));
         throw new Error(err.error || 'Payment submit failed');
       }
-      if (method === 'card') {
-        setMessage('Payment successful — course added.');
-      } else if (method === 'free') {
+      if (method === 'free') {
         setMessage('Enrollment successful — course added.');
       } else {
         setMessage(`We have received your request for ${selected.name}. Please wait until the admin approves the request.`);
@@ -393,10 +407,33 @@ function AllCourses({ studentId, onPurchased }) {
       } catch (e) { /* ignore */ }
       setSelected(null);
       setSlipFile(null);
-      if (method === 'card' && typeof onPurchased === 'function') onPurchased();
+      if (typeof onPurchased === 'function') onPurchased();
     } catch (e) {
       setMessage(e.message || 'Error');
     } finally { setSubmitting(false); }
+  };
+
+  const handleCardPaymentSuccess = async () => {
+    setShowCardModal(false);
+    setMessage('Payment successful! Enrollment processed.');
+    
+    // Refresh enrollments list
+    try {
+      const sc = await fetch(`${BACKEND_URL}/api/students/${studentId}/enrollments`);
+      if (sc.ok) {
+        const data = await sc.json();
+        setStudentCoursesList(Array.isArray(data.enrollments) ? data.enrollments : []);
+      }
+    } catch (e) { console.error('refresh enrollments', e); }
+    
+    // Reset form after a delay
+    setTimeout(() => {
+      setSelected(null);
+      setMethod('bank');
+      setSlipFile(null);
+      setPaymentPlan('full');
+      setMessage('');
+    }, 2000);
   };
 
   if (loading) return <p>Loading courses...</p>;
@@ -405,9 +442,13 @@ function AllCourses({ studentId, onPurchased }) {
     <div>
       <h3 className="font-semibold mb-4">All Courses</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {courses.map(c => (
+        {(() => {
+          // hide courses the student is already approved for
+          const approvedIds = Array.isArray(studentCoursesList) ? studentCoursesList.filter(sc => sc.payment_status === 'approved').map(sc => Number(sc.course_id)) : [];
+          const filteredCourses = courses.filter(c => !approvedIds.includes(Number(c.id)));
+          return filteredCourses.map((c, idx) => (
           <motion.div
-            key={c.id}
+            key={`course-${c.id}-${idx}`}
             layout
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -492,7 +533,8 @@ function AllCourses({ studentId, onPurchased }) {
               <button onClick={() => { setSelected(c); setViewMode('details'); }} className="p-3 bg-white/90 backdrop-blur rounded-full shadow-lg hover:bg-blue-50"><svg className="w-4 h-4 text-gray-700" /></button>
             </div>
           </motion.div>
-        ))}
+          ))
+        })()}
       </div>
 
       {selected && createPortal(
@@ -574,6 +616,34 @@ function AllCourses({ studentId, onPurchased }) {
                           <label className={`px-3 py-2 border rounded ${method==='card'?'bg-gray-100':''}`}><input type="radio" name="pm" checked={method==='card'} onChange={()=>setMethod('card')} /> Card</label>
                         </div>
 
+                        {/* Payment plan options based on course duration */}
+                        {(() => {
+                          let months = 0;
+                          try { const m = String(selected.duration||'').trim().match(/^(\d+)/); if (m) months = parseInt(m[1],10); } catch(e) { months = 0; }
+                          const opts = [];
+                          if (months <= 1) {
+                            opts.push({v:'full', l:'Full payment'});
+                          } else if (months <= 3) {
+                            opts.push({v:'monthly', l:'Pay Monthly (1 month)'}, {v:'full', l:'Full payment'});
+                          } else if (months >= 6) {
+                            opts.push({v:'monthly', l:'Pay Monthly (1 month)'}, {v:'3-month', l:'3-month block'}, {v:'full', l:'Full payment'});
+                          } else {
+                            opts.push({v:'monthly', l:'Pay Monthly (1 month)'}, {v:'full', l:'Full payment'});
+                          }
+                          return (
+                            <div className="mt-3">
+                              <div className="text-sm text-gray-700">Choose payment plan:</div>
+                              <div className="mt-2 flex gap-3 flex-wrap">
+                                {opts.map(o => (
+                                  <label key={o.v} className={`px-3 py-2 border rounded ${paymentPlan===o.v? 'bg-gray-100':''}`}>
+                                    <input type="radio" name="plan" checked={paymentPlan===o.v} onChange={() => setPaymentPlan(o.v)} /> {o.l}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {method === 'bank' && (
                           <div className="mt-4">
                             <div className="text-sm text-gray-600">Bank Details:</div>
@@ -599,6 +669,15 @@ function AllCourses({ studentId, onPurchased }) {
           </motion.div>
         </motion.div>, document.body)
       }
+
+      <CardPaymentModal
+        isOpen={showCardModal}
+        onClose={() => setShowCardModal(false)}
+        course={selected}
+        studentId={studentId}
+        paymentPlan={paymentPlan}
+        onPaymentSuccess={handleCardPaymentSuccess}
+      />
     </div>
   );
 }

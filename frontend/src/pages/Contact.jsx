@@ -58,7 +58,7 @@ export default function Contact() {
     {
       icon: Mail,
       title: 'Email Address',
-      details: ['info@globalgate.lk'],
+      details: ['globalgate25.lk@gmail.com'],
       color: 'from-blue-500 to-cyan-500'
     },
     {

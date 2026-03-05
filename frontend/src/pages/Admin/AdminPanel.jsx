@@ -198,19 +198,20 @@ function StudentsAdmin() {
       const raw = sessionStorage.getItem('AUTH_USER');
       const parsed = raw ? JSON.parse(raw) : null;
       const headers = parsed && parsed.token ? { Authorization: `Bearer ${parsed.token}` } : {};
-      const res = await fetch(`${BACKEND_URL}/api/students/${studentId}/courses`, { headers });
+      const res = await fetch(`${BACKEND_URL}/api/students/${studentId}/enrollments`, { headers });
       const data = await res.json();
-      setCoursesModal({ open: true, studentId, courses: Array.isArray(data.courses)?data.courses:[] });
+      // enrollments endpoint returns rows with start_date and end_date
+      setCoursesModal({ open: true, studentId, courses: Array.isArray(data.enrollments)?data.enrollments:[] });
     } catch (e) { console.error(e); alert('Failed to load courses'); }
   };
 
-  const removeCourseFromStudent = async (studentId) => {
+  const removeCourseFromStudent = async (studentId, courseId) => {
     if (!confirm('Remove this course from student?')) return;
     try {
       const raw = sessionStorage.getItem('AUTH_USER');
       const parsed = raw ? JSON.parse(raw) : null;
-      const headers = parsed && parsed.token ? { Authorization: `Bearer ${parsed.token}` } : {};
-      const r = await fetch(`${BACKEND_URL}/api/students/${studentId}/course`, { method: 'DELETE', headers });
+      const headers = parsed && parsed.token ? { Authorization: `Bearer ${parsed.token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+      const r = await fetch(`${BACKEND_URL}/api/students/${studentId}/course`, { method: 'DELETE', headers, body: JSON.stringify({ courseId }) });
       if (!r.ok) throw new Error('Failed');
       alert('Course removed');
       setCoursesModal({ open: false, studentId: null, courses: [] });
@@ -304,11 +305,17 @@ function StudentsAdmin() {
                   {coursesModal.courses.map(c => (
                     <li key={c.id} className="p-4 border rounded flex justify-between items-center">
                       <div>
-                        <div className="font-semibold">{c.name}</div>
-                        <div className="text-sm text-gray-600">{c.duration} • {c.fee ? `LKR ${c.fee}` : 'Free'}</div>
+                        <div className="font-semibold">{c.course_name || c.name || `Course #${c.course_id}`}</div>
+                        <div className="text-sm text-gray-600">{c.duration || ''} • {c.fee ? `LKR ${c.fee}` : 'Free'}</div>
+                        {(c.start_date || c.end_date) && (
+                          <div className="text-xs text-gray-500 mt-1">{c.start_date ? `Starts: ${new Date(c.start_date).toLocaleDateString()}` : ''}{c.start_date && c.end_date && ' • '}{c.end_date ? `Ends: ${new Date(c.end_date).toLocaleDateString()}` : ''}</div>
+                        )}
+                        <div className="text-xs mt-1">
+                          {c.end_date && (new Date(c.end_date) >= new Date() ? <span className="text-green-600">Active</span> : <span className="text-red-600">Expired</span>)}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => removeCourseFromStudent(coursesModal.studentId)} className="px-3 py-1 bg-red-600 text-white rounded">Remove</button>
+                        <button onClick={() => removeCourseFromStudent(coursesModal.studentId, c.course_id)} className="px-3 py-1 bg-red-600 text-white rounded">Remove</button>
                       </div>
                     </li>
                   ))}

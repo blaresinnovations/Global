@@ -20,6 +20,7 @@ import Contact from "./pages/Contact";
 import Eng from "./pages/Eng";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsConditions from "./pages/TermsConditions";
+import Return from "./pages/Return";
 
 
 
@@ -66,6 +67,7 @@ function App() {
 
         <Route path="/privacy" element={<PrivacyPolicy/>} />
         <Route path="/terms" element={<TermsConditions />} />
+        <Route path="/return" element={<Return />} />
         
       </Routes>
       {!hideLayout && <Footer />}

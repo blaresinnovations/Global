@@ -39,6 +39,9 @@ app.use('/api/auth', authRouter);
 const adminsRouter = require('./routes/admins');
 const { requireAuth } = require('./middleware/auth');
 app.use('/api/admins', requireAuth('admin'), adminsRouter);
+// Payments (PayHere) scaffold
+const paymentsRouter = require('./routes/payments');
+app.use('/api/payments', paymentsRouter);
 
 // Delete expired lessons: remove lessons whose end_time has passed
 async function deleteExpiredLessons() {

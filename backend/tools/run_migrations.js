@@ -46,6 +46,18 @@ async function run() {
         continue;
       }
 
+      if (file.includes('add_payment_columns')) {
+        const [cols] = await conn.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'student_courses' AND COLUMN_NAME IN ('payment_plan', 'order_id')", [process.env.DB_NAME]);
+        if (cols && cols.length >= 2) {
+          console.log(' - payment columns already exist, skipping');
+        } else {
+          const sql = fs.readFileSync(full, 'utf8');
+          if (sql.trim()) await conn.query(sql);
+          console.log(' - payment columns added');
+        }
+        continue;
+      }
+
       const sql = fs.readFileSync(full, 'utf8');
       if (!sql.trim()) { console.log(' - empty file'); continue; }
       await conn.query(sql);
